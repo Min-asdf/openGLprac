@@ -1,0 +1,171 @@
+#include <GL/freeglut.h>
+
+//마우스 클릭 변수
+GLint TopLeftX, TopLeftY, BottomRightX, BottomRightY;
+
+//메뉴 항목 boolean
+GLboolean IsSphere = true;
+GLboolean IsSmall = true;
+
+//Idle, Timer 콜백 변수
+GLfloat Delta = 0.0;
+
+//콜백 함수 선언
+void MyIdle();
+void MyDisplay();
+void MyReshape(int NewWidth, int NewHeight);
+void MyKeyboard(unsigned char KeyPressed, int X, int Y);
+void MyMouseClick(GLint Button, GLint State, GLint X, GLint Y);
+void MyMouseMove(GLint X, GLint Y);
+void MyMainMenu(int entryID);
+void MySubMenu(int entryID);
+void MyTimer(int Value);
+
+int main(int argc, char** argv) {
+	//GLUT 윈도우 함수
+	glutInit(&argc, argv);
+	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
+	glutInitWindowSize(300, 300);
+	glutInitWindowPosition(0, 0);
+	glutCreateWindow("OpenGL Practice");
+
+	//GL상태 변수 설정
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+
+	//서브 메뉴 설정
+	GLint MySubMenuID = glutCreateMenu(MySubMenu);
+	glutAddMenuEntry("Small One", 1);
+	glutAddMenuEntry("Big One", 2);
+
+	//메인 메뉴 설정
+	GLint MyMainMenuID = glutCreateMenu(MyMainMenu);
+	glutAddMenuEntry("Draw Sphere", 1);
+	glutAddMenuEntry("Draw Torus", 2);
+	glutAddSubMenu("Change Size", MySubMenuID);
+	glutAddMenuEntry("Exit", 3);
+	glutAttachMenu(GLUT_RIGHT_BUTTON);
+
+	//GLUT 콜백 함수 등록
+	glutDisplayFunc(MyDisplay);
+	//glutReshapeFunc(MyReshape);
+	glutKeyboardFunc(MyKeyboard);
+	glutMouseFunc(MyMouseClick);
+	glutMotionFunc(MyMouseMove);
+	glutTimerFunc(40, MyTimer, 1);
+
+	//이벤트 루프 진입
+	//glutIdleFunc(MyIdle);
+	glutMainLoop();
+	glFlush();
+}
+
+//Display 콜백 함수
+void MyDisplay() {
+	//GL 상태 변수 설정
+	glClear(GL_COLOR_BUFFER_BIT);
+	glViewport(0, 0, 300, 300);
+	glColor3f(1.0, 1.0, 1.0);
+
+	//오브젝트 생성
+	//도넛형, 원구형 오브젝트 그리기
+	if ((IsSphere) && (IsSmall))
+		glutWireSphere(0.2 + Delta, 15, 15);
+	else if ((IsSphere) && (!IsSmall))
+		glutWireSphere(0.4 + Delta, 15 , 15);
+	else if ((!IsSphere) && (IsSmall))
+		glutWireTorus(0.1 + Delta, 0.3, 40, 20);
+	else
+		glutWireTorus(0.2 + Delta, 0.5, 40, 20);
+
+	//마우스 입력 요소 정의
+	glBegin(GL_POLYGON);
+	glVertex3f(TopLeftX / 300.0, (300 - TopLeftY) / 300.0, 0.0);
+	glVertex3f(TopLeftX / 300.0, (300 - BottomRightY) / 300.0, 0.0);
+	glVertex3f(BottomRightX / 300.0, (300 - BottomRightY) / 300.0, 0.0);
+	glVertex3f(BottomRightX / 300.0, (300 - TopLeftY) / 300.0, 0.0);
+
+	//끝, 초기화
+	glEnd();
+	glutSwapBuffers();
+}
+
+//Idle 콜백 함수
+void MyIdle() {
+	Delta = Delta + 0.001;
+	glutPostRedisplay();
+}
+
+//타이머 콜백 함수
+void MyTimer(int Value) {
+	Delta = Delta + 0.001;
+	glutPostRedisplay();
+	glutTimerFunc(40, MyTimer, 1);
+}
+
+//Reshape 콜백 함수 (수정 필요)
+void MyReshape(int NewWidth, int NewHeight) {
+	glViewport(0, 0, NewWidth, NewHeight);
+	GLfloat WidthFactor = (GLfloat)NewWidth / (GLfloat)300;
+	GLfloat HeightFactor = (GLfloat)NewHeight / (GLfloat)300;
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-1.0 * WidthFactor, 1.0 * WidthFactor, -1.0 * HeightFactor, 1.0 * HeightFactor, -1.0, 1.0);
+}
+
+//키보드 입력 콜백 함수
+void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
+	switch (KeyPressed) {
+		//Q 누를 시 종료
+	case 'Q':
+		exit(0);
+		break;
+
+		//q 누를 시 종료
+	case 'q':
+		exit(0);
+		break;
+
+		//esc 누를 시 종료
+	case 27:
+		exit(0);
+		break;
+	}
+}
+
+//마우스 입력 콜백 함수 (수정 필요)
+void MyMouseClick(GLint Button, GLint State, GLint X, GLint Y) {
+	if (Button == GLUT_LEFT_BUTTON && State == GLUT_DOWN) {
+		TopLeftX = X;
+		TopLeftY = Y;
+	}
+}
+
+//마우스 움직임 콜백 함수
+void MyMouseMove(GLint X, GLint Y) {
+	BottomRightX = X;
+	BottomRightY = Y;
+	glutPostRedisplay();
+}
+
+//메인 메뉴 콜백 함수
+void MyMainMenu(int entryID) {
+	if (entryID == 1)
+		IsSphere = true;
+	else if (entryID == 2)
+		IsSphere = false;
+	else if (entryID == 3)
+		exit(0);
+	glutPostRedisplay();
+}
+
+//서브 메뉴 콜백 함수
+void MySubMenu(int entryID) {
+	if (entryID == 1)
+		IsSmall = true;
+	else if (entryID == 2)
+		IsSmall = false;
+	glutPostRedisplay();
+}
