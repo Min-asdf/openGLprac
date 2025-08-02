@@ -1,0 +1,52 @@
+#include <GL/freeglut.h>
+
+//변수 선언
+
+
+//콜백 함수 선언
+
+int main(int argc, char** argv) {
+	glutInit(&argc, argv);
+	glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE);
+	glutInitWindowSize(500, 500);
+	glutInitWindowPosition(0, 0);
+	glutCreateWindow("Window Name");
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
+	
+	//콜백 함수 등록
+	glutDisplayFunc(MyDisplay);
+	glutKeyboardFunc(MyKeyboard);
+	glutMainLoop();
+
+	return 0;
+}
+
+//그리기 함수
+void MyDisplay() {
+
+
+	glutSwapBuffers();
+}
+
+//키보드 입력 콜백 함수
+void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
+	switch (KeyPressed) {
+		//Q 누를 시 종료
+	case 'Q':
+		exit(0);
+		break;
+
+		//q 누를 시 종료
+	case 'q':
+		exit(0);
+		break;
+
+		//esc 누를 시 종료
+	case 27:
+		exit(0);
+		break;
+	}
+}
