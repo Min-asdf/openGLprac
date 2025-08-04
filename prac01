@@ -2,6 +2,8 @@
 
 //마우스 클릭 변수
 GLint TopLeftX, TopLeftY, BottomRightX, BottomRightY;
+int winWidth = 300;
+int winHeight = 300;
 
 //메뉴 항목 boolean
 GLboolean IsSphere = true;
@@ -11,6 +13,7 @@ GLboolean IsSmall = true;
 GLfloat Delta = 0.0;
 
 //콜백 함수 선언
+void convertDeviceXY2OpenGLXY(int x, int y, float* ox, float* oy);
 void MyIdle();
 void MyDisplay();
 void MyReshape(int NewWidth, int NewHeight);
@@ -50,7 +53,7 @@ int main(int argc, char** argv) {
 
 	//GLUT 콜백 함수 등록
 	glutDisplayFunc(MyDisplay);
-	//glutReshapeFunc(MyReshape);
+	glutReshapeFunc(MyReshape);
 	glutKeyboardFunc(MyKeyboard);
 	glutMouseFunc(MyMouseClick);
 	glutMotionFunc(MyMouseMove);
@@ -59,14 +62,22 @@ int main(int argc, char** argv) {
 	//이벤트 루프 진입
 	//glutIdleFunc(MyIdle);
 	glutMainLoop();
-	glFlush();
+}
+
+//윈도우 좌표 변수를 openGL좌표로 변환 후 저장하는 함수
+void convertDeviceXY2OpenGLXY(int x, int y, float* ox, float* oy) {
+	GLfloat WidthFactor = (GLfloat)winWidth / 300.0f;
+	GLfloat HeightFactor = (GLfloat)winHeight / 300.0f;
+
+	*ox = ((float)x / winWidth) * 2.0f * WidthFactor - WidthFactor * 1.0f;
+	*oy = ((float)(winHeight - y) / winHeight) * 2.0f * HeightFactor - HeightFactor * 1.0f;
 }
 
 //Display 콜백 함수
 void MyDisplay() {
 	//GL 상태 변수 설정
 	glClear(GL_COLOR_BUFFER_BIT);
-	glViewport(0, 0, 300, 300);
+	glViewport(0, 0, winWidth, winHeight);
 	glColor3f(1.0, 1.0, 1.0);
 
 	//오브젝트 생성
@@ -74,21 +85,26 @@ void MyDisplay() {
 	if ((IsSphere) && (IsSmall))
 		glutWireSphere(0.2 + Delta, 15, 15);
 	else if ((IsSphere) && (!IsSmall))
-		glutWireSphere(0.4 + Delta, 15 , 15);
+		glutWireSphere(0.4 + Delta, 15, 15);
 	else if ((!IsSphere) && (IsSmall))
 		glutWireTorus(0.1 + Delta, 0.3, 40, 20);
 	else
 		glutWireTorus(0.2 + Delta, 0.5, 40, 20);
 
 	//마우스 입력 요소 정의
-	glBegin(GL_POLYGON);
-	glVertex3f(TopLeftX / 300.0, (300 - TopLeftY) / 300.0, 0.0);
-	glVertex3f(TopLeftX / 300.0, (300 - BottomRightY) / 300.0, 0.0);
-	glVertex3f(BottomRightX / 300.0, (300 - BottomRightY) / 300.0, 0.0);
-	glVertex3f(BottomRightX / 300.0, (300 - TopLeftY) / 300.0, 0.0);
+	float x1, y1, x2, y2;
+	convertDeviceXY2OpenGLXY(TopLeftX, TopLeftY, &x1, &y1);
+	convertDeviceXY2OpenGLXY(BottomRightX, BottomRightY, &x2, &y2);
 
-	//끝, 초기화
+	//사각형 그리기
+	glBegin(GL_POLYGON);
+	glVertex3f(x1, y1, 0.0);
+	glVertex3f(x1, y2, 0.0);
+	glVertex3f(x2, y2, 0.0);
+	glVertex3f(x2, y1, 0.0);
 	glEnd();
+
+	//초기화
 	glutSwapBuffers();
 }
 
@@ -100,19 +116,28 @@ void MyIdle() {
 
 //타이머 콜백 함수
 void MyTimer(int Value) {
-	Delta = Delta + 0.001;
+	if (Delta < 0.5f)
+		Delta += 0.001f;
+	else
+		Delta = 0.0f;
+
 	glutPostRedisplay();
 	glutTimerFunc(40, MyTimer, 1);
 }
 
-//Reshape 콜백 함수 (수정 필요)
+//Reshape 콜백 함수
 void MyReshape(int NewWidth, int NewHeight) {
-	glViewport(0, 0, NewWidth, NewHeight);
-	GLfloat WidthFactor = (GLfloat)NewWidth / (GLfloat)300;
-	GLfloat HeightFactor = (GLfloat)NewHeight / (GLfloat)300;
+	winWidth = NewWidth;
+	winHeight = NewHeight;
+
+	glViewport(0, 0, winWidth, winHeight);
+	GLfloat WidthFactor = (GLfloat)winWidth / 300.0f;
+	GLfloat HeightFactor = (GLfloat)winHeight / 300.0f;
+
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	glOrtho(-1.0 * WidthFactor, 1.0 * WidthFactor, -1.0 * HeightFactor, 1.0 * HeightFactor, -1.0, 1.0);
+	glOrtho(-1.0 * WidthFactor, 1.0 * WidthFactor,
+		-1.0 * HeightFactor, 1.0 * HeightFactor, -1.0, 1.0);
 }
 
 //키보드 입력 콜백 함수
@@ -135,8 +160,8 @@ void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
 	}
 }
 
-//마우스 입력 콜백 함수 (수정 필요)
-void MyMouseClick(GLint Button, GLint State, GLint X, GLint Y) {
+//마우스 입력 콜백 함수
+void MyMouseClick(GLint Button, GLint State, GLint X, GLint  Y) {
 	if (Button == GLUT_LEFT_BUTTON && State == GLUT_DOWN) {
 		TopLeftX = X;
 		TopLeftY = Y;
