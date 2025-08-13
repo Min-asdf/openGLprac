@@ -52,7 +52,6 @@ void MyDisplay() {
     glRotatef(angleX, 1, 0, 0);
     glRotatef(angleY, 0, 1, 0);
 
-    //색 지정 후 큐브 그리기
     //한 변 길이 1.0f 큐브(+-0.5)의 각 마다 ColorRGB함수로 색 지정
     const float s = 0.5f;
     glBegin(GL_QUADS);
