@@ -60,7 +60,7 @@ void MyDisplay() {
 	for (GLint i = 0; i < 6; i++) {
 		//오브젝트 그리기
 		//GL_POLYGON -> 다각형 오브젝트
-		//4, GL_UNSIGNED_BYTE -> unsigned byte 타입으로 표시되는 4개의 Indes로 구성됨
+		//4, GL_UNSIGNED_BYTE -> unsigned byte 타입으로 표시되는 4개의 Index로 구성됨
 		//&MyVertexList[4 * i] -> 정점 리스트의 시작 주소, i값이 변함에 따라 다각형을 구성하는 첫 Index의 시작 주소를 바꾸기 위한 것
 		glDrawElements(GL_POLYGON, 4, GL_UNSIGNED_BYTE, &MyVertexList[4 * i]);
 	}
