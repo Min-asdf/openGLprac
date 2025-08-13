@@ -1,0 +1,156 @@
+#include <GL/freeglut.h>
+#include <cmath>
+
+//창 크기
+GLint winWidth = 300, winHeight = 300;
+//회전 각도
+GLfloat angleX = 0.0f, angleY = 0.0f;
+//색상 변경 변수
+GLfloat Delta = 0.0f;
+GLfloat colorSpeed = 0.02f;
+//시간 오프셋
+GLfloat offsets[6] = { 0, 1, 2, 3, 4, 5 };
+
+//콜백 함수
+void MyDisplay();
+void MyReshape(int w, int h);
+void MyTimer(int);
+void MyKeyboard(unsigned char KeyPressed, int X, int Y);
+void ColorRGB(int Index);
+
+//메인 함수
+int main(int argc, char** argv) {
+    glutInit(&argc, argv);
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+    glutInitWindowSize(winWidth, winHeight);
+    glutCreateWindow("Spinning Cube");
+
+    glClearColor(1.f, 1.f, 1.f, 1.f); //흰색 배경
+    glEnable(GL_DEPTH_TEST);
+
+    glutDisplayFunc(MyDisplay);
+    glutReshapeFunc(MyReshape);
+    glutTimerFunc(16, MyTimer, 0);    //~60 FPS
+    glutKeyboardFunc(MyKeyboard);
+
+    glutMainLoop();
+    return 0;
+}
+
+//디스플레이 함수
+void MyDisplay() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    //모델 좌표계
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+
+    //카메라를 뒤로 이동시켜서 큐브가 보이도록
+    glTranslatef(0.0f, 0.0f, -3.0f);
+
+    //회전 적용 (X, Y축)
+    glRotatef(angleX, 1, 0, 0);
+    glRotatef(angleY, 0, 1, 0);
+
+    //색 지정 후 큐브 그리기
+    //한 변 길이 1.0f 큐브(+-0.5)의 각 마다 ColorRGB함수로 색 지정
+    const float s = 0.5f;
+    glBegin(GL_QUADS);
+
+    //앞면 (z+)
+    ColorRGB(0);
+    glVertex3f(-s, -s, s); glVertex3f(s, -s, s);
+    glVertex3f(s, s, s); glVertex3f(-s, s, s);
+
+    //뒷면 (z-)
+    ColorRGB(1);
+    glVertex3f(s, -s, -s); glVertex3f(-s, -s, -s);
+    glVertex3f(-s, s, -s); glVertex3f(s, s, -s);
+
+    //오른쪽 (x+)
+    ColorRGB(2);
+    glVertex3f(s, -s, s); glVertex3f(s, -s, -s);
+    glVertex3f(s, s, -s); glVertex3f(s, s, s);
+
+    //왼쪽 (x-)
+    ColorRGB(3);
+    glVertex3f(-s, -s, -s); glVertex3f(-s, -s, s);
+    glVertex3f(-s, s, s); glVertex3f(-s, s, -s);
+
+    //위 (y+)
+    ColorRGB(4);
+    glVertex3f(-s, s, s); glVertex3f(s, s, s);
+    glVertex3f(s, s, -s); glVertex3f(-s, s, -s);
+
+    //아래 (y-)
+    ColorRGB(5);
+    glVertex3f(-s, -s, -s); glVertex3f(s, -s, -s);
+    glVertex3f(s, -s, s);  glVertex3f(-s, -s, s);
+
+    glEnd();
+
+    glutSwapBuffers();
+}
+
+//Reshape 함수
+void MyReshape(int w, int h) {
+    if (h == 0) h = 1;
+    winWidth = w; winHeight = h;
+    glViewport(0, 0, w, h);
+    //좌표계 변환
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    //원근 투영
+    gluPerspective(60.0, (GLfloat)w / (GLfloat)h, 0.1, 100.0);
+    //모델 좌표계로 변환
+    glMatrixMode(GL_MODELVIEW);
+}
+
+//회전 타이머 함수
+void MyTimer(int) {
+    //색상 업데이트
+    Delta += colorSpeed;
+    if (Delta > 1.0f) { Delta = 1.0f; colorSpeed = -colorSpeed; }
+    if (Delta < 0.0f) { Delta = 0.0f; colorSpeed = -colorSpeed; }
+
+    //각도 업데이트
+    angleX += 1.0f;
+    angleY += 1.5f;
+    if (angleX >= 360.f) angleX -= 360.f;
+    if (angleY >= 360.f) angleY -= 360.f;
+
+    glutPostRedisplay();
+    glutTimerFunc(16, MyTimer, 0);
+}
+
+// 면 인덱스로 RGB를 정해주는 함수
+void ColorRGB(int Index) {
+    const float shiftG = 2.0943951f;
+    const float shiftB = 4.1887902f;
+
+    float t = Delta + offsets[Index];
+    float r = 0.5f + 0.5f * sinf(t);
+    float g = 0.5f + 0.5f * sinf(t + shiftG);
+    float b = 0.5f + 0.5f * sinf(t + shiftB);
+    glColor3f(r, g, b);
+}
+
+//키보드 입력 함수
+void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
+    switch (KeyPressed) {
+        //Q 누를 시 종료
+    case 'Q':
+        exit(0);
+        break;
+
+        //q 누를 시 종료
+    case 'q':
+        exit(0);
+        break;
+
+        //esc 누를 시 종료
+    case 27:
+        exit(0);
+        break;
+    }
+}
