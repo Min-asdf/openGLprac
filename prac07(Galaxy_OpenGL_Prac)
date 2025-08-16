@@ -2,15 +2,15 @@
 #include <cmath>
 
 //시뮬레이션 상에서 흐른 시간, 시간 속도 변수
-static double days = 0.0;
-static double simSpeed = 1.0;
+GLdouble days = 0.0;
+GLdouble simSpeed = 1.0;
 
 //지구 공전, 자전 변수
-static const double earthOrbit = 365.256;
-static const double earthSpin = 1.0;
+const GLdouble earthOrbit = 365.256;
+const GLdouble earthSpin = 1.0;
 //달 공전, 자전 변수
-static const double moonOrbit = 27.321661;
-static const double moonSpin = moonOrbit;
+const GLdouble moonOrbit = 27.321661;
+const GLdouble moonSpin = moonOrbit;
 
 void MyDisplay();
 void MyKeyboard(unsigned char key, int x, int y);
@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
 }
 
 //각도 정규화(0~360 범위)
-static inline float degNormalize(double deg) {
+inline float degNormalize(double deg) {
 	//fmod(a, b) -> a를 b로 나눈 나머지값(<cmath> 사용)
 	deg = fmod(deg, 360.0);
 	if (deg < 0) deg += 360.0;
@@ -49,10 +49,10 @@ void MyDisplay() {
 	glLoadIdentity();
 
 	//각 천체의 각도
-	double earthOrbitDeg = (days / earthOrbit) * 360.0;
-	double earthSpinDeg = (days / earthSpin) * 360.0;
-	double moonOrbitDeg = (days / moonOrbit) * 360.0;
-	double moonSpinDeg = (days / moonSpin) * 360.0;
+	GLdouble earthOrbitDeg = (days / earthOrbit) * 360.0;
+	GLdouble earthSpinDeg = (days / earthSpin) * 360.0;
+	GLdouble moonOrbitDeg = (days / moonOrbit) * 360.0;
+	GLdouble moonSpinDeg = (days / moonSpin) * 360.0;
 
 	glColor3f(1.0, 0.3, 0.3);
 	glutWireSphere(0.2, 20, 16);
@@ -104,8 +104,9 @@ void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
 void MyTimer(int value) {
 	//이전 프레임과의 현재 프레임 사이의 시간 차이(dtSec) 계산
 	//프레임 속도와 상관없이 항상 일정한 시간 흐름을 반영하기 위해 사용
- 
+
 	//이전 프레임 시각(ms)
+	//함수 여러번 호출 시 변수값을 유지하기 위해 static 사용
 	static int prevMS = glutGet(GLUT_ELAPSED_TIME);
 	//현재 시각(ms)
 	int nowMS = glutGet(GLUT_ELAPSED_TIME);
