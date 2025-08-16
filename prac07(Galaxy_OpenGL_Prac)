@@ -1,8 +1,16 @@
 #include <GL/freeglut.h>
-#include <ctime>
+#include <cmath>
 
-static int Day = 0;
-static int Time = 0;
+//시뮬레이션 상에서 흐른 시간, 시간 속도 변수
+static double days = 0.0;
+static double simSpeed = 1.0;
+
+//지구 공전, 자전 변수
+static const double earthOrbit = 365.256;
+static const double earthSpin = 1.0;
+//달 공전, 자전 변수
+static const double moonOrbit = 27.321661;
+static const double moonSpin = moonOrbit;
 
 void MyDisplay();
 void MyKeyboard(unsigned char key, int x, int y);
@@ -27,23 +35,42 @@ int main(int argc, char** argv) {
 	return 0;
 }
 
+//각도 정규화(0~360 범위)
+static inline float degNormalize(double deg) {
+	//fmod(a, b) -> a를 b로 나눈 나머지값(<cmath> 사용)
+	deg = fmod(deg, 360.0);
+	if (deg < 0) deg += 360.0;
+	return (float)deg;
+}
+
 void MyDisplay() {
 	glClear(GL_COLOR_BUFFER_BIT);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
+
+	//각 천체의 각도
+	double earthOrbitDeg = (days / earthOrbit) * 360.0;
+	double earthSpinDeg = (days / earthSpin) * 360.0;
+	double moonOrbitDeg = (days / moonOrbit) * 360.0;
+	double moonSpinDeg = (days / moonSpin) * 360.0;
+
 	glColor3f(1.0, 0.3, 0.3);
 	glutWireSphere(0.2, 20, 16);
 
 	glPushMatrix();
-	glRotatef((GLfloat)Day, 0.0, 1.0, 0.0);
+	glRotatef(degNormalize(earthOrbitDeg), 0.0, 1.0, 0.0);
 	glTranslatef(0.7, 0.0, 0.0);
-	glRotatef((GLfloat)Time, 0.0, 1.0, 0.0);
-	glColor3f(0.5, 0.6, 0.7);
-	glutWireSphere(0.1, 10, 8);
 
 	glPushMatrix();
-	glRotatef((GLfloat)Time, 0.0, 1.0, 0.0);
+	glRotatef(degNormalize(earthSpinDeg), 0.0, 1.0, 0.0);
+	glColor3f(0.5, 0.6, 0.7);
+	glutWireSphere(0.1, 10, 8);
+	glPopMatrix();
+
+	glPushMatrix();
+	glRotatef(degNormalize(moonOrbitDeg), 0.0, 1.0, 0.0);
 	glTranslatef(0.2, 0.0, 0.0);
+	glRotatef(degNormalize(moonSpinDeg), 0.0, 1.0, 0.0);
 	glColor3f(0.9, 0.8, 0.2);
 	glutWireSphere(0.04, 10, 8);
 	glPopMatrix();
@@ -55,26 +82,40 @@ void MyDisplay() {
 
 void MyKeyboard(unsigned char KeyPressed, int X, int Y) {
 	switch (KeyPressed) {
-		//Q 누를 시 종료
-	case 'Q':
+		//Q, q, 'esc' 누를 시 종료
+	case 'Q': case'q': case 27:
 		exit(0);
 		break;
 
-		//q 누를 시 종료
-	case 'q':
-		exit(0);
+		//'+' 누를 시 시뮬레이션 속도 증가
+	case '+':
+		simSpeed *= 1.5;
+		if (simSpeed > 1000.0) simSpeed = 1000.0;
 		break;
 
-		//esc 누를 시 종료
-	case 27:
-		exit(0);
+		//'-'누를 시 시뮬레이션 속도 감소
+	case '-':
+		simSpeed /= 1.5;
+		if (simSpeed < 0.01) simSpeed = 0.01;
 		break;
 	}
 }
 
 void MyTimer(int value) {
-	Day = (Day + 2) % 360;
-	Time = (Time + 1) % 360;
+	//이전 프레임과의 현재 프레임 사이의 시간 차이(dtSec) 계산
+	//프레임 속도와 상관없이 항상 일정한 시간 흐름을 반영하기 위해 사용
+ 
+	//이전 프레임 시각(ms)
+	static int prevMS = glutGet(GLUT_ELAPSED_TIME);
+	//현재 시각(ms)
+	int nowMS = glutGet(GLUT_ELAPSED_TIME);
+	//경과 시간(초)
+	double dtSec = (nowMS - prevMS) / 1000.0;
+	//기준 시각 갱신
+	prevMS = nowMS;
+
+	//시뮬레이션 시간 업데이트
+	days += dtSec * simSpeed;
 
 	glutPostRedisplay();
 	glutTimerFunc(16, MyTimer, 1);
