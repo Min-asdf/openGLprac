@@ -1,0 +1,377 @@
+#include <GL/freeglut.h>
+#include <cmath>
+#include <vector>
+
+/*
+=== 데모 개요 ===
+chatGPT이용하여 데모 제작 추후 수정 예정
+
+Monza 서킷을 몇 개의 '제어점'으로 근사하고, Catmull-Rom 스플라인으로 매끄러운
+'중심선(centerline)'을 샘플링한 뒤, 중심선의 법선을 이용해 좌/우 가장자리를 만들어
+삼각형 스트립(TRIANGLE_STRIP)으로 트랙 메쉬를 그린다.
+카메라는 궤도형(orbit) 뷰: 마우스 드래그로 yaw/pitch, 휠/±로 줌.
+빨간 사각형은 트랙을 따라 움직이는 간단한 차량 마커(시연용).
+*/
+
+// --------------------------- 기본 벡터/수학 도우미 ---------------------------
+// 단순화를 위해 2D는 XZ 평면(지면)을 V2로, 3D는 V3로 표현한다.
+// 트랙 중심선은 지면(XZ) 위의 선이므로 V2로 충분, 렌더링할 때만 높이(Y)를 더해 V3로 만든다.
+struct V2 { float x, z; };
+struct V3 { float x, y, z; };
+
+// 벡터 연산 유틸 (성능보다 가독성/간결성을 위해 인라인 함수로 구성)
+static inline V2 add(V2 a, V2 b) { return { a.x + b.x, a.z + b.z }; }
+static inline V2 sub(V2 a, V2 b) { return { a.x - b.x, a.z - b.z }; }
+static inline V2 mul(V2 a, float s) { return { a.x * s, a.z * s }; }
+static inline float dot(V2 a, V2 b) { return a.x * b.x + a.z * b.z; }
+static inline float len(V2 a) { return std::sqrt(dot(a, a)); }
+// 방향 벡터(단위 벡터)로 만들기. 0에 가까운 길이는 NaN 방지를 위해 (0,0) 반환.
+static inline V2 norm(V2 a) { float l = len(a); return (l > 1e-6f) ? mul(a, 1.0f / l) : V2{ 0,0 }; }
+// C++17 std::clamp 대체: Visual Studio 버전 상관없이 쓰려고 직접 구현
+static inline float clampf(float v, float lo, float hi) { return (v < lo) ? lo : (v > hi ? hi : v); }
+
+// -------------------------- Catmull-Rom 스플라인 -----------------------------
+// 4개 제어점(p0~p3)과 보간 파라미터 t∈[0,1]로 중간점을 계산.
+// 이유: 직선 보간보다 훨씬 매끄럽고, 각 코너(제어점)들을 "지나는" 곡선을 만들 수 있음.
+// Monza의 긴 스트레이트/복합 코너를 자연스럽게 이어주기에 적합.
+static V2 catmull(const V2& p0, const V2& p1, const V2& p2, const V2& p3, float t) {
+    float t2 = t * t, t3 = t2 * t;
+    return {
+        0.5f * ((2 * p1.x) + (-p0.x + p2.x) * t + (2 * p0.x - 5 * p1.x + 4 * p2.x - p3.x) * t2 + (-p0.x + 3 * p1.x - 3 * p2.x + p3.x) * t3),
+        0.5f * ((2 * p1.z) + (-p0.z + p2.z) * t + (2 * p0.z - 5 * p1.z + 4 * p2.z - p3.z) * t2 + (-p0.z + 3 * p1.z - 3 * p2.z + p3.z) * t3)
+    };
+}
+
+// ------------------------------ 전역 상태 ------------------------------------
+// 트랙 구성용 배열
+static std::vector<V2> gCtrl;    // 제어점(폐곡선). 손으로 찍은 Monza 근사 포인트.
+static std::vector<V2> gCenter;  // 스플라인으로 샘플링한 중심선 좌표들(폐곡선).
+static std::vector<V3> gStrip;   // 중심선의 좌/우로 확장해 만든 삼각형 스트립(트랙 메쉬).
+
+// 트랙 파라미터
+static float gTrackW = 14.0f;        // 트랙 폭(대략적인 미터 단위). 폭이 넓을수록 도로가 두꺼워짐.
+static int   gSamplesPerSeg = 35;    // 제어점 세그먼트 당 샘플 수(높을수록 곡선이 부드러움).
+static float gCarT = 0.0f;           // 차량의 중심선 진행 파라미터(0~1). 타이머에서 증가시킴.
+
+// 카메라(궤도형 orbit) 파라미터
+static float gYaw = 0.6f;            // 수평 회전
+static float gPitch = 0.4f;          // 수직 회전
+static float gDist = 160.0f;         // 카메라 거리(줌)
+static int   gLastX = -1, gLastY = -1; // 마우스 드래그 좌표 저장(없을 때 -1)
+
+// ------------------------- Monza 제어점 구성(근사) ---------------------------
+// 실제 좌표는 아니고, 사진/레이아웃을 보고 대략 찍은 값들.
+// 이유: OBJ/GLTF 같은 외부 파일 없이도 한 파일로 트랙 형태를 빠르게 미리보기 가능.
+// Monza(맵 기준) 형태로 다시 잡은 제어점들.
+// 좌표계: X=오른쪽(+), Z=위(+). 화면 아래(메인 스트레이트)는 Z가 음수 쪽.
+// Catmull-Rom이 각 점을 "지나가도록" 부드럽게 잇는다.
+static void buildMonzaCtrl(std::vector<V2>& out) {
+    out.clear();
+
+    // ===== Start/Finish 쪽(우측) → T11(Parabolica) → 메인 스트레이트(아래) =====
+    out.push_back({ 880,-105 });  // 메인 스트레이트 우측 끝
+    out.push_back({ 840,-110 });
+    out.push_back({ 780,-112 });
+    out.push_back({ 700,-112 });
+
+    // Parabolica(Alboreto) 큰 우코너
+    out.push_back({ 740,-70 });
+    out.push_back({ 760,-35 });
+    out.push_back({ 750,  0 });
+    out.push_back({ 720, 20 });
+    out.push_back({ 670, 30 });
+
+    // ===== Sector 3 직선(윗쪽, 오른쪽→왼쪽) =====
+    out.push_back({ 560, 25 });
+    out.push_back({ 460, 20 });
+    out.push_back({ 360, 18 });
+    out.push_back({ 260, 16 });
+    out.push_back({ 160, 14 });
+    out.push_back({ 60, 14 });
+
+    // 8-9-10 Ascari 시케인 (↘↗ S자)
+    out.push_back({ -5,  12 });
+    out.push_back({ 70, -10 });
+    out.push_back({ 160, -22 });
+    out.push_back({ 260, -30 });
+    out.push_back({ 360, -28 });
+    out.push_back({ 450, -12 });
+    out.push_back({ 520,  10 });
+    out.push_back({ 560,  25 }); // 살짝 재진입(스플라인 안정)
+
+    // ===== Serraglio(사선 하강) : Lesmo2 → Ascari 사이 대각선 =====
+    out.push_back({ 280,  70 });
+    out.push_back({ 120, 100 });
+    out.push_back({ -20, 120 });
+    out.push_back({ -160, 110 });
+
+    // Lesmo 1, 2 (좌측 상단 두 개의 우코너)
+    out.push_back({ -230,  95 });
+    out.push_back({ -300,  75 });
+    out.push_back({ -350,  45 }); // Lesmo2 탈출
+
+    // Roggia 시케인(04-05 부근, 좌우 빠른 S)
+    out.push_back({ -360,  15 });
+    out.push_back({ -340,  -5 });
+    out.push_back({ -300, -20 });
+    out.push_back({ -260, -15 });
+    out.push_back({ -230,   0 });
+    out.push_back({ -230,  25 });
+
+    // Curva Grande (T3, 큰 우코너 위로 올라감)
+    out.push_back({ -250,  60 });
+    out.push_back({ -300,  95 });
+    out.push_back({ -360, 120 });
+    out.push_back({ -420, 135 });
+
+    // ===== T1/T2 시케인 쪽으로 아래로 큰 호(좌측 외곽) =====
+    out.push_back({ -520, 125 });
+    out.push_back({ -600,  90 });
+    out.push_back({ -640,  40 });
+    out.push_back({ -650,   0 });
+    out.push_back({ -630, -40 });
+    out.push_back({ -580, -70 });
+
+    // 메인 스트레이트(아래, 좌→우)
+    out.push_back({ -520,-100 });
+    out.push_back({ -420,-110 });
+    out.push_back({ -300,-112 });
+    out.push_back({ -180,-112 });
+    out.push_back({ -60,-112 });
+    out.push_back({ 60,-112 });
+    out.push_back({ 180,-112 });
+    out.push_back({ 320,-112 });
+    out.push_back({ 500,-110 });
+    out.push_back({ 700,-110 });
+    out.push_back({ 840,-108 }); // 루프 클로저 방향
+}
+
+
+// ------------------- 중심선 샘플링 + 트랙 메시(스트립) 생성 -------------------
+// 이유:
+// 1) 스플라인으로 중심선을 조밀하게 샘플링하면 부드러운 곡선 트랙을 얻는다.
+// 2) 각 중심선에서 접선의 좌수직(법선)을 이용해 좌/우 가장자리를 만들고
+//    TRIANGLE_STRIP으로 연결하면 간결하고 빠르게 도로를 그릴 수 있다.
+static void rebuildTrack()
+{
+    // 1) 스플라인으로 중심선 샘플
+    gCenter.clear();
+    const int n = (int)gCtrl.size();
+    if (n < 4) return;
+
+    for (int i = 0; i < n; ++i) {
+        const V2& p0 = gCtrl[(i - 1 + n) % n];
+        const V2& p1 = gCtrl[i];
+        const V2& p2 = gCtrl[(i + 1) % n];
+        const V2& p3 = gCtrl[(i + 2) % n];
+        for (int s = 0; s < gSamplesPerSeg; ++s) {
+            float t = (float)s / (float)gSamplesPerSeg;
+            gCenter.push_back(catmull(p0, p1, p2, p3, t));
+        }
+    }
+
+    // 2) 중심선 좌/우로 폭만큼 확장해 스트립 만들기
+    gStrip.clear();
+    const float halfW = gTrackW * 0.5f;
+    const int m = (int)gCenter.size();
+    for (int i = 0; i < m; ++i) {
+        V2 c = gCenter[i];
+        V2 cN = gCenter[(i + 1) % m];
+        V2 tan = norm(sub(cN, c));       // 접선(진행 방향)
+        V2 nrm = { -tan.z, tan.x };      // XZ 평면에서 좌측 법선 (RHS 기준)
+
+        V2 L = add(c, mul(nrm, +halfW));
+        V2 R = add(c, mul(nrm, -halfW));
+        // 살짝 떠 있게 0.01로 Y를 줘서 지면과 Z-fight 방지
+        gStrip.push_back({ L.x, 0.01f, L.z });
+        gStrip.push_back({ R.x, 0.01f, R.z });
+    }
+}
+
+// ------------------------------- 카메라 --------------------------------------
+// 이유: 트랙을 한눈에 보기 쉽게 궤도형 카메라. 마우스로 yaw/pitch, 거리 gDist 적용.
+static void setCamera()
+{
+    float cp = cosf(gPitch), sp = sinf(gPitch);
+    float cy = cosf(gYaw), sy = sinf(gYaw);
+    float ex = gDist * cp * sy;      // 구면좌표 → 직교좌표
+    float ey = gDist * sp + 40.0f;   // 살짝 위에서 내려다보도록 오프셋
+    float ez = gDist * cp * cy;
+
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    gluLookAt(ex, ey, ez, 0, 0, 0, 0, 1, 0);
+}
+
+// ------------------------------ 그리기 루틴 ----------------------------------
+// 바닥(큰 직사각형). 조명 끄고 단색으로.
+static void drawGround()
+{
+    glDisable(GL_LIGHTING);
+    glColor3f(0.12f, 0.13f, 0.15f);
+    glBegin(GL_QUADS);
+    glVertex3f(-1500, 0, -1500);
+    glVertex3f(1500, 0, -1500);
+    glVertex3f(1500, 0, 1500);
+    glVertex3f(-1500, 0, 1500);
+    glEnd();
+}
+
+// 트랙 본체(삼각형 스트립) + 중심선(라인 루프)
+static void drawTrack()
+{
+    if (gStrip.empty()) return;
+
+    // 아스팔트
+    glEnable(GL_LIGHTING);
+    glColor3f(0.08f, 0.08f, 0.08f);
+    glNormal3f(0, 1, 0); // 평면 노멀
+    glBegin(GL_TRIANGLE_STRIP);
+    for (const auto& v : gStrip) glVertex3f(v.x, v.y, v.z);
+    // 스트립을 닫아 seam 제거 (첫 두 정점 재사용)
+    glVertex3f(gStrip[0].x, gStrip[0].y, gStrip[0].z);
+    glVertex3f(gStrip[1].x, gStrip[1].y, gStrip[1].z);
+    glEnd();
+
+    // 중앙 노란 라인 (시각적 확인용)
+    glDisable(GL_LIGHTING);
+    glLineWidth(2.0f);
+    glColor3f(0.95f, 0.9f, 0.2f);
+    glBegin(GL_LINE_LOOP);
+    for (const auto& c : gCenter) glVertex3f(c.x, 0.02f, c.z);
+    glEnd();
+}
+
+// 간단한 차량 마커: 중심선의 현재 위치/방향으로 사각형 한 조각을 그린다.
+static void drawCarMarker()
+{
+    if (gCenter.size() < 2) return;
+
+    int m = (int)gCenter.size();
+    float ft = gCarT * m;        // 전체 샘플에 대한 float 인덱스
+    int i0 = ((int)ft) % m;      // 시작 샘플
+    int i1 = (i0 + 1) % m;       // 다음 샘플
+    float u = ft - std::floor(ft); // 보간 비율
+
+    // 위치 보간
+    V2 c = { gCenter[i0].x * (1 - u) + gCenter[i1].x * u,
+             gCenter[i0].z * (1 - u) + gCenter[i1].z * u };
+    // 방향(접선) 및 법선
+    V2 t = norm(sub(gCenter[i1], gCenter[i0]));
+    V2 nrm = { -t.z, t.x };
+
+    // 마커의 길이(l), 폭(w)
+    float w = 4.0f, l = 7.0f;
+    V2 f = add(c, mul(t, l * 0.5f));
+    V2 b = add(c, mul(t, -l * 0.5f));
+    V2 L = add(c, mul(nrm, w * 0.5f));
+    V2 R = add(c, mul(nrm, -w * 0.5f));
+
+    glDisable(GL_LIGHTING);
+    glColor3f(0.85f, 0.15f, 0.15f);
+    glBegin(GL_QUADS);
+    glVertex3f(L.x, 0.12f, L.z); glVertex3f(f.x, 0.12f, f.z);
+    glVertex3f(R.x, 0.12f, R.z); glVertex3f(b.x, 0.12f, b.z);
+    glEnd();
+}
+
+// ---------------------------- GLUT 콜백 함수들 -------------------------------
+static void onDisplay()
+{
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    setCamera();
+    drawGround();
+    drawTrack();
+    drawCarMarker();
+    glutSwapBuffers(); // 더블버퍼 스왑: 깜빡임 방지
+}
+
+static void onReshape(int w, int h)
+{
+    if (h == 0) h = 1;
+    glViewport(0, 0, w, h);
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    // 원근 투영: 패러미터는 적당히(가까운/먼 클리핑 등)
+    gluPerspective(60.0, (float)w / (float)h, 1.0, 5000.0);
+    glMatrixMode(GL_MODELVIEW);
+}
+
+static void onTimer(int)
+{
+    // 차량을 중심선 따라 조금씩 진행. 1을 넘으면 루프(트랙 한 바퀴)
+    gCarT += 0.0009f;
+    if (gCarT >= 1.0f) gCarT -= 1.0f;
+
+    glutPostRedisplay();            // 화면 갱신 요청
+    glutTimerFunc(16, onTimer, 0);  // ~60FPS 타이머 재등록
+}
+
+static void onKeyboard(unsigned char k, int, int)
+{
+    if (k == 'q' || k == 'Q' || k == 27) exit(0); // 종료
+    if (k == '+') { gDist -= 5.0f; gDist = clampf(gDist, 40.0f, 600.0f); glutPostRedisplay(); } // 줌인
+    if (k == '-') { gDist += 5.0f; gDist = clampf(gDist, 40.0f, 600.0f); glutPostRedisplay(); } // 줌아웃
+}
+
+static void onMouse(int btn, int state, int x, int y)
+{
+    // 좌클릭 드래그 시작/종료
+    if (btn == GLUT_LEFT_BUTTON) {
+        if (state == GLUT_DOWN) { gLastX = x; gLastY = y; }
+        else { gLastX = -1; gLastY = -1; }
+    }
+
+    // 마우스 휠: 3=위, 4=아래 (freeglut 관례)
+    if (btn == 3) { gDist -= 10.0f; gDist = clampf(gDist, 40.0f, 600.0f); glutPostRedisplay(); }
+    if (btn == 4) { gDist += 10.0f; gDist = clampf(gDist, 40.0f, 600.0f); glutPostRedisplay(); }
+}
+
+static void onMotion(int x, int y)
+{
+    if (gLastX < 0) return;    // 드래그 중이 아니면 무시
+    int dx = x - gLastX, dy = y - gLastY;
+    gLastX = x; gLastY = y;
+    // 마우스 이동량을 라디안 스텝으로 환산해 yaw/pitch 갱신
+    gYaw += dx * 0.005f;
+    gPitch += -dy * 0.005f;    // 스크린 좌표계(y↓) → 카메라 pitch는 위가 +이므로 부호 반전
+    gPitch = clampf(gPitch, -1.2f, 1.2f); // 카메라가 엎어지지 않게 제한
+    glutPostRedisplay();
+}
+
+// --------------------------------- main --------------------------------------
+int main(int argc, char** argv)
+{
+    glutInit(&argc, argv);
+    // 더블버퍼 + RGBA + 깊이버퍼
+    glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGBA | GLUT_DEPTH);
+    glutInitWindowSize(1280, 720);
+    glutCreateWindow("Monza (approx) - OpenGL");
+
+    // 렌더링 기본 상태
+    glEnable(GL_DEPTH_TEST);   // 깊이 테스트: 뒤에 있는 폴리곤 가려짐
+    glEnable(GL_LIGHTING);     // 고정 파이프라인 조명 사용
+    glEnable(GL_LIGHT0);       // 기본 광원 0 켜기
+
+    // 간단한 광원/재질 설정 (밝은 방향성 조명 느낌)
+    GLfloat Ld[4] = { 0.9f,0.9f,0.9f,1 }, La[4] = { 0.2f,0.2f,0.25f,1 };
+    GLfloat Lp[4] = { 300,400,200,1 };
+    glLightfv(GL_LIGHT0, GL_DIFFUSE, Ld);
+    glLightfv(GL_LIGHT0, GL_AMBIENT, La);
+    glLightfv(GL_LIGHT0, GL_POSITION, Lp);
+
+    // 트랙 데이터 생성
+    buildMonzaCtrl(gCtrl);  // 손으로 찍은 제어점
+    rebuildTrack();         // 중심선 샘플 + 스트립 생성
+
+    // GLUT 콜백 등록
+    glutDisplayFunc(onDisplay);
+    glutReshapeFunc(onReshape);
+    glutKeyboardFunc(onKeyboard);
+    glutMouseFunc(onMouse);
+    glutMotionFunc(onMotion);
+    glutTimerFunc(16, onTimer, 0); // 16ms 간격 타이머 시작
+
+    glutMainLoop();
+    return 0;
+}
