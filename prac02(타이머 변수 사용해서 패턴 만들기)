@@ -24,9 +24,9 @@ unsigned char PALETTE[16][3] = {
 //변수 선언
 GLfloat Delta = 0.0;
 GLint Index = 0;
-GLfloat Red = 0.0; 
-GLfloat Green = 0.0; 
-GLfloat Blue = 0.0; 
+GLfloat Red = 0.0;
+GLfloat Green = 0.0;
+GLfloat Blue = 0.0;
 
 void MyTimer(int value);
 void MyDisplay();
@@ -43,7 +43,7 @@ int main(int argc, char** argv) {
 	glLoadIdentity();
 	glOrtho(-1.0, 1.0, -1.0, 1.0, -1.0, 1.0);
 	glutTimerFunc(16, MyTimer, 1);
-	
+
 	glutDisplayFunc(MyDisplay);
 	glutKeyboardFunc(MyKeyboard);
 	glutMainLoop();
@@ -74,8 +74,10 @@ void MyTimer(int value) {
 		Delta = Delta + 0.01;
 	else {
 		Delta = 0.0;
-		if (++Index >= 16) Index = 0;
-	glClear(GL_COLOR_BUFFER_BIT);
+		if (++Index >= 16) {
+			Index = 0;
+			glClear(GL_COLOR_BUFFER_BIT);
+		}
 	}
 
 	glutPostRedisplay();
